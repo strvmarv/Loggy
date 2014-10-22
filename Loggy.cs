@@ -85,31 +85,34 @@ namespace Loggy
         /// <summary>
         /// Dumps entries.
         /// </summary>
+        /// <param name="referenceId">The reference identifier.</param>
         /// <param name="caller">The caller.</param>
         /// <returns></returns>
-        public static IEnumerable<LoggyEntry> Dump(string caller = null)
+        public static IEnumerable<LoggyEntry> Dump(Guid? referenceId = null, string caller = null)
         {
-            return DumpImpl(caller);
+            return DumpImpl(referenceId, caller);
         }
 
         /// <summary>
         /// Dumps entries as string.
         /// </summary>
+        /// <param name="referenceId">The reference identifier.</param>
         /// <param name="caller">The caller.</param>
         /// <returns></returns>
-        public static IEnumerable<string> DumpAsString(string caller = null)
+        public static IEnumerable<string> DumpAsString(Guid? referenceId = null, string caller = null)
         {
-            return DumpAsStringImpl(caller);
+            return DumpAsStringImpl(referenceId, caller);
         }
 
         /// <summary>
         /// Dumps entries as tuple.
         /// </summary>
+        /// <param name="referenceId">The reference identifier.</param>
         /// <param name="caller">The caller.</param>
         /// <returns></returns>
-        public static IEnumerable<Tuple<DateTime, string, string>> DumpAsTuple(string caller = null)
+        public static IEnumerable<Tuple<DateTime, Guid, string, string>> DumpAsTuple(Guid? referenceId = null, string caller = null)
         {
-            return DumpAsTupleImpl(caller);
+            return DumpAsTupleImpl(referenceId, caller);
         }
 
         /// <summary>
@@ -119,7 +122,7 @@ namespace Loggy
         /// <param name="caller">The caller.</param>
         /// <returns></returns>
         /// <exception cref="System.ArgumentNullException">message;message cannot be null</exception>
-        public static Guid Log(string message, string caller = null)
+        public static Guid Log(string message, Guid? referenceId = null, string caller = null)
         {
             if (string.IsNullOrWhiteSpace(message)) throw new LoggyArgumentNullException("message", "message cannot be null");
 
@@ -134,7 +137,9 @@ namespace Loggy
                 caller = string.Format("{0}.{1}", type, name);
             }
 
-            return LogImpl(message, caller);
+            if (referenceId == null) referenceId = Guid.NewGuid();
+
+            return LogImpl(message, referenceId.Value, caller);
         }
 
         /// <summary>
@@ -144,7 +149,7 @@ namespace Loggy
         /// <param name="caller">The caller.</param>
         /// <returns></returns>
         /// <exception cref="System.ArgumentNullException">exception;exception cannot be null</exception>
-        public static Guid Log(Exception exception, string caller = null)
+        public static Guid Log(Exception exception, Guid? referenceId = null, string caller = null)
         {
             if (exception == null) throw new LoggyArgumentNullException("exception", "exception cannot be null");
 
@@ -159,7 +164,9 @@ namespace Loggy
                 caller = string.Format("{0}.{1}", type, name);
             }
 
-            return LogImpl(exception, caller);
+            if (referenceId == null) referenceId = Guid.NewGuid();
+
+            return LogImpl(exception, referenceId.Value, caller);
         }
 
         /// <summary>
@@ -181,68 +188,56 @@ namespace Loggy
             PurgeImpl(_entries.Count);
         }
 
-        private static IEnumerable<string> DumpAsStringImpl(string caller = null)
+        private static IEnumerable<string> DumpAsStringImpl(Guid? referenceId, string caller = null)
         {
-            if (!string.IsNullOrWhiteSpace(caller))
-            {
-                return _entries
-                    .Where(c => c.Caller.Equals(caller, StringComparison.OrdinalIgnoreCase))
-                    .Select(c => c.ToString())
-                    .AsEnumerable();
-            }
+            var entries = _entries.AsQueryable();
 
-            return _entries
-                .Select(c => c.ToString())
-                .AsEnumerable();
+            if (referenceId != null) entries = entries.Where(c => c.ReferenceId == referenceId);
+            if (!string.IsNullOrWhiteSpace(caller)) entries = entries.Where(c => c.Caller.Equals(caller, StringComparison.OrdinalIgnoreCase));
+
+            return entries.Select(c => c.ToString()).AsEnumerable();
         }
 
-        private static IEnumerable<Tuple<DateTime, string, string>> DumpAsTupleImpl(string caller = null)
+        private static IEnumerable<Tuple<DateTime, Guid, string, string>> DumpAsTupleImpl(Guid? referenceId, string caller = null)
         {
-            if (!string.IsNullOrWhiteSpace(caller))
-            {
-                return _entries
-                    .Where(c => c.Caller.Equals(caller, StringComparison.OrdinalIgnoreCase))
-                    .Select(c => new Tuple<DateTime, string, string>(new DateTime(c.DateTicks), c.Caller, c.Message))
-                    .AsEnumerable();
-            }
+            var entries = _entries.AsQueryable();
 
-            return _entries
-                .Select(c => new Tuple<DateTime, string, string>(new DateTime(c.DateTicks), c.Caller, c.Message))
-                .AsEnumerable();
+            if (referenceId != null) entries = entries.Where(c => c.ReferenceId == referenceId);
+            if (!string.IsNullOrWhiteSpace(caller)) entries = entries.Where(c => c.Caller.Equals(caller, StringComparison.OrdinalIgnoreCase));
+
+            return entries.Select(c => new Tuple<DateTime, Guid, string, string>(new DateTime(c.DateTicks), c.ReferenceId, c.Caller, c.Message)).AsEnumerable();
         }
 
-        private static IEnumerable<LoggyEntry> DumpImpl(string caller = null)
+        private static IEnumerable<LoggyEntry> DumpImpl(Guid? referenceId, string caller = null)
         {
-            if (!string.IsNullOrWhiteSpace(caller))
-            {
-                return _entries
-                    .Where(c => c.Caller.Equals(caller, StringComparison.OrdinalIgnoreCase))
-                    .AsEnumerable();
-            }
+            var entries = _entries.AsQueryable();
+
+            if (referenceId != null) entries = entries.Where(c => c.ReferenceId == referenceId);
+            if (!string.IsNullOrWhiteSpace(caller)) entries = entries.Where(c => c.Caller.Equals(caller, StringComparison.OrdinalIgnoreCase));
 
             return _entries.AsEnumerable();
         }
 
-        private static Guid LogImpl(string message, string caller = null)
+        private static Guid LogImpl(string message, Guid referenceId, string caller)
         {
             PurgeTimer_Initialize();
 
-            var entry = new LoggyEntry(caller, message);
+            var entry = new LoggyEntry(referenceId, caller, message);
 
             Queue(entry);
 
-            return entry.Id;
+            return entry.ReferenceId;
         }
 
-        private static Guid LogImpl(Exception exception, string caller = null)
+        private static Guid LogImpl(Exception exception, Guid referenceId, string caller)
         {
             PurgeTimer_Initialize();
 
-            var entry = new LoggyEntry(caller, exception);
+            var entry = new LoggyEntry(referenceId, caller, exception);
 
             Queue(entry);
 
-            return entry.Id;
+            return entry.ReferenceId;
         }
 
         private static int PurgeImpl(int quantityToPurge)
@@ -269,6 +264,11 @@ namespace Loggy
         private static LoggyEntry RetrieveByIdImpl(Guid id)
         {
             return _entries.Where(c => c.Id == id).SingleOrDefault();
+        }
+
+        private static IEnumerable<LoggyEntry> RetrieveByReferenceIdImpl(Guid referenceId)
+        {
+            return _entries.Where(c => c.ReferenceId == referenceId).AsEnumerable();
         }
 
         #endregion
@@ -494,12 +494,13 @@ namespace Loggy
             /// </summary>
             /// <param name="caller">The caller.</param>
             /// <param name="message">The message.</param>
-            public LoggyEntry(string caller, string message)
+            public LoggyEntry(Guid referenceId, string caller, string message)
             {
                 this.Caller = caller;
                 this.DateTicks = DateTime.UtcNow.Ticks;
                 this.Id = Guid.NewGuid();
                 this.Message = message;
+                this.ReferenceId = referenceId;
             }
 
             /// <summary>
@@ -507,12 +508,13 @@ namespace Loggy
             /// </summary>
             /// <param name="caller">The caller.</param>
             /// <param name="exception">The exception.</param>
-            public LoggyEntry(string caller, Exception exception)
+            public LoggyEntry(Guid referenceId, string caller, Exception exception)
             {
                 this.Caller = caller;
                 this.DateTicks = DateTime.UtcNow.Ticks;
                 this.Id = Guid.NewGuid();
                 this.Message = exception.ParseException();
+                this.ReferenceId = referenceId;
             }
 
             /// <summary>
@@ -548,6 +550,14 @@ namespace Loggy
             public string Message { get; set; }
 
             /// <summary>
+            /// Gets or sets the reference identifier.
+            /// </summary>
+            /// <value>
+            /// The reference identifier.
+            /// </value>
+            public Guid ReferenceId { get; set; }
+
+            /// <summary>
             /// Returns a hash code for this instance.
             /// </summary>
             /// <returns>
@@ -575,7 +585,7 @@ namespace Loggy
             /// </returns>
             public override string ToString()
             {
-                return string.Format("{0} -- {1} -- {2}", new DateTime(this.DateTicks).ToString("YYYY/MM/dd HH:mm:fffffff"), this.Caller, this.Message);
+                return string.Format("{0} -- {1} -- {2}", new DateTime(this.DateTicks).ToString(), this.Caller, this.Message);
             }
         }
 
